@@ -5,8 +5,8 @@
 #
 # Перед использованием замените BOT_TOKEN и CHAT_ID на свои значения.
 
-BOT_TOKEN="ВАШ_BOT_TOKEN"
-CHAT_ID="ВАШ_CHAT_ID"
+BOT_TOKEN=7814937403:AAHDEMbf4ewt0O-RT-YsH31MUIA26W0GJw8
+CHAT_ID=http://t.me/RecVVive_Bot
 
 # Функция отправки сообщения в Telegram
 send_to_telegram() {
