@@ -72,7 +72,7 @@ $report['StartupItems'] = @{
 
 # 5. Логи и события
 $report['EventLogs'] = @{
-    Security = Get-WinEvent -LogName Security -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
+    Security = Get-WinEvent -LogName Application -MaxEvents 50 | Select TimeCreated, Id, Message
     System = Get-WinEvent -LogName System -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
     Application = Get-WinEvent -LogName Application -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
 }
