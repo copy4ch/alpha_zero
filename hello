@@ -4,6 +4,7 @@ $message = @{ content = "Hello World" } | ConvertTo-Json
 
 # ===== Отправка =====
 try {
+Add-Type -AssemblyName "System.Net.Http"
     $httpClient = New-Object System.Net.Http.HttpClient
     $content = New-Object System.Net.Http.StringContent($message, [System.Text.Encoding]::UTF8, "application/json")
 
