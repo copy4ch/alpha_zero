@@ -74,7 +74,6 @@ $report['StartupItems'] = @{
 $report['EventLogs'] = @{
     Security = Get-WinEvent -LogName Application -MaxEvents 50 | Select TimeCreated, Id, Message
     System = Get-WinEvent -LogName System -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
-    Application = Get-WinEvent -LogName Application -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
 }
 
 # 6. Дополнительно - проверка открытых портов на localhost
