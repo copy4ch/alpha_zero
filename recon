@@ -94,7 +94,6 @@ $report['SecurityLogs'] = Get-WinEvent -LogName Security -MaxEvents 50 | Select-
 $report | ConvertTo-Json -Depth 5 | Out-File -FilePath $reportPath -Encoding utf8
 Write-Output "✅ Отчет сохранен: $reportPath"
 
-𝕯𝖆𝖓𝖞𝖑𝖔, [05/06/2025 19:18]
 # ========== ОТПРАВКА В DISCORD ==========
 try {
     Add-Type -AssemblyName System.Net.Http
